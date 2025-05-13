@@ -2,7 +2,6 @@ from contextlib import AbstractAsyncContextManager
 from typing import Self
 
 import httpx
-import ssl
 from user_agent import generate_user_agent
 
 from post_tracker.custom_types import TrackingResult
@@ -13,18 +12,35 @@ logger = get_logger(name=__name__)
 
 
 class PostTracker(AbstractAsyncContextManager):
+    """
+    PostTracker is the main class that will be used get tracking info.
+
+    Example:
+        ```python
+        import asyncio
+        from post_tracker import PostTracker
+        from post_tracker.errors import TrackingNotFoundError
+
+        async def main():
+            code = "12345"
+            async with PostTracker() as tracker_app:
+                try:
+                    result = await tracker_app.get_tracking_post(tracking_code=code)
+                    print(result)
+                    # output
+                except TrackingNotFoundError as e:
+                    return print(e)
+
+
+        asyncio.run(main())
+        ```
+
+    """
+
     def __init__(self) -> None:
-        # ایجاد یک SSLContext امن با سطح پایین‌تر
-        ssl_context = ssl.create_default_context()
-        ssl_context.set_ciphers("DEFAULT:@SECLEVEL=1")  # کاهش سخت‌گیری DH
-        ssl_context.check_hostname = True
-        ssl_context.verify_mode = ssl.CERT_REQUIRED
-        ssl_context.minimum_version = ssl.TLSVersion.TLSv1  # اجازه TLS قدیمی‌تر
+        """initializing the PostTracker application."""
 
-        # استفاده از transport سفارشی
-        transport = httpx.AsyncHTTPTransport(verify=ssl_context)
-
-        self._httpx_client = httpx.AsyncClient(transport=transport)
+        self._httpx_client = httpx.AsyncClient()
 
         logger.debug("PostTracker app Initialized !")
 
@@ -32,10 +48,14 @@ class PostTracker(AbstractAsyncContextManager):
         logger.debug("async client opened.")
         return self
 
-    async def __aexit__(self, __exc_type, __exc_value, __traceback) -> None:
+    async def __aexit__(self, __exc_type, __exc_value, __traceback) -> None:  # noqa: ANN001
         await self.close()
 
     async def close(self) -> None:
+        """
+        close the applocation
+        """
+        # http client
         if not self._httpx_client.is_closed:
             await self._httpx_client.aclose()
         logger.debug("PostTracker application closed.")
@@ -43,10 +63,11 @@ class PostTracker(AbstractAsyncContextManager):
     async def get_tracking_post(self, tracking_code: str) -> TrackingResult:
         url = f"https://tracking.post.ir/search.aspx?id={tracking_code}"
 
+        # get view state value
         viewstate, event_validation = await get_viewstate(
             client=self._httpx_client, tracking_code=tracking_code
         )
-
+        # get random user agent
         user_agent = generate_user_agent()
 
         payload = {
@@ -90,6 +111,7 @@ class PostTracker(AbstractAsyncContextManager):
             follow_redirects=True,
         )
 
+        # parse the content
         content = response.text
         data = parse_tracking_result(content=content)
 
