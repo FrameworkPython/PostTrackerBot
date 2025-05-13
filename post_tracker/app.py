@@ -1,6 +1,6 @@
 from contextlib import AbstractAsyncContextManager
 from typing import Self
-
+import ssl
 import httpx
 from user_agent import generate_user_agent
 
@@ -27,20 +27,21 @@ class PostTracker(AbstractAsyncContextManager):
                 try:
                     result = await tracker_app.get_tracking_post(tracking_code=code)
                     print(result)
-                    # output
                 except TrackingNotFoundError as e:
                     return print(e)
 
-
         asyncio.run(main())
         ```
-
     """
 
     def __init__(self) -> None:
-        """initializing the PostTracker application."""
+        """Initializing the PostTracker application."""
 
-        self._httpx_client = httpx.AsyncClient()
+        # پیکربندی SSL برای کاهش سطح امنیت فقط در این کلاینت
+        ssl_context = ssl.create_default_context()
+        ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')  # رفع مشکل DH key too small
+
+        self._httpx_client = httpx.AsyncClient(verify=ssl_context)
 
         logger.debug("PostTracker app Initialized !")
 
@@ -48,14 +49,11 @@ class PostTracker(AbstractAsyncContextManager):
         logger.debug("async client opened.")
         return self
 
-    async def __aexit__(self, __exc_type, __exc_value, __traceback) -> None:  # noqa: ANN001
+    async def __aexit__(self, __exc_type, __exc_value, __traceback) -> None:
         await self.close()
 
     async def close(self) -> None:
-        """
-        close the applocation
-        """
-        # http client
+        """Close the application and HTTP client."""
         if not self._httpx_client.is_closed:
             await self._httpx_client.aclose()
         logger.debug("PostTracker application closed.")
@@ -63,11 +61,10 @@ class PostTracker(AbstractAsyncContextManager):
     async def get_tracking_post(self, tracking_code: str) -> TrackingResult:
         url = f"https://tracking.post.ir/search.aspx?id={tracking_code}"
 
-        # get view state value
         viewstate, event_validation = await get_viewstate(
             client=self._httpx_client, tracking_code=tracking_code
         )
-        # get random user agent
+
         user_agent = generate_user_agent()
 
         payload = {
@@ -111,7 +108,6 @@ class PostTracker(AbstractAsyncContextManager):
             follow_redirects=True,
         )
 
-        # parse the content
         content = response.text
         data = parse_tracking_result(content=content)
 
