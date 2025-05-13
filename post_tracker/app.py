@@ -13,21 +13,17 @@ logger = get_logger(name=__name__)
 
 
 class PostTracker(AbstractAsyncContextManager):
-    """
-    PostTracker is the main class that will be used get tracking info.
-    """
-
     def __init__(self) -> None:
-        """initializing the PostTracker application."""
-
-        # ساخت context سفارشی برای کاهش سطح امنیت SSL
+        # ایجاد یک SSLContext امن با سطح پایین‌تر
         ssl_context = ssl.create_default_context()
-        ssl_context.set_ciphers("ALL:@SECLEVEL=1")
+        ssl_context.set_ciphers("DEFAULT:@SECLEVEL=1")  # کاهش سخت‌گیری DH
+        ssl_context.check_hostname = True
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        ssl_context.minimum_version = ssl.TLSVersion.TLSv1  # اجازه TLS قدیمی‌تر
 
-        # استفاده از transport سفارشی با context فوق
+        # استفاده از transport سفارشی
         transport = httpx.AsyncHTTPTransport(verify=ssl_context)
 
-        # اعمال transport در httpx client
         self._httpx_client = httpx.AsyncClient(transport=transport)
 
         logger.debug("PostTracker app Initialized !")
@@ -40,7 +36,6 @@ class PostTracker(AbstractAsyncContextManager):
         await self.close()
 
     async def close(self) -> None:
-        """close the application"""
         if not self._httpx_client.is_closed:
             await self._httpx_client.aclose()
         logger.debug("PostTracker application closed.")
@@ -48,7 +43,6 @@ class PostTracker(AbstractAsyncContextManager):
     async def get_tracking_post(self, tracking_code: str) -> TrackingResult:
         url = f"https://tracking.post.ir/search.aspx?id={tracking_code}"
 
-        # دریافت viewstate و event_validation
         viewstate, event_validation = await get_viewstate(
             client=self._httpx_client, tracking_code=tracking_code
         )
@@ -96,7 +90,6 @@ class PostTracker(AbstractAsyncContextManager):
             follow_redirects=True,
         )
 
-        # پردازش پاسخ دریافتی
         content = response.text
         data = parse_tracking_result(content=content)
 
